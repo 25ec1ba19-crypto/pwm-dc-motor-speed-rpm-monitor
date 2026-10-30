@@ -1,47 +1,79 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
-const byte POT_PIN       = A0;
-const byte MOTOR_PWM_PIN = 9;
-const byte HALL_PIN      = 2;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-const byte MAGNETS = 1;                 
-const unsigned long SAMPLE_MS = 1000;   
+const int hallPin = 8;
+const int volume_pin = A0;
+const int pwm_pin = 11;
 
-volatile unsigned long pulseCount = 0;
+const unsigned long sampleTime = 1000;
+const int pulsesPerRev = 2;  
+
+int read_ADC;
+int duty_cycle;
+int duty_cycle_lcd;
+
 unsigned long lastSample = 0;
-
-void countPulse() {
-  pulseCount++;
-}
+unsigned long pulseCount = 0;
+int rpm = 0;
+bool previousHall = HIGH;
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(MOTOR_PWM_PIN, OUTPUT);
-  pinMode(HALL_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(HALL_PIN), countPulse, FALLING);
-  Serial.println("PWM Motor Control & RPM Monitor");
-  Serial.println("Duty(%)\tRPM");
+  pinMode(hallPin, INPUT_PULLUP);
+  pinMode(volume_pin, INPUT);
+  pinMode(pwm_pin, OUTPUT);
+
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0, 0);
+  lcd.print("PWM Motor Speed");
+  lcd.setCursor(0, 1);
+  lcd.print("RPM Monitoring");
+  delay(2000);
+  lcd.clear();
+
+  lastSample = millis();
 }
 
 void loop() {
-  int potValue = analogRead(POT_PIN);
-  int pwmValue = map(potValue, 0, 1023, 0, 255);
-  analogWrite(MOTOR_PWM_PIN, pwmValue);
+  
+  bool currentHall = digitalRead(hallPin);
+
+  if (previousHall == HIGH && currentHall == LOW) {
+    pulseCount++;
+  }
+  previousHall = currentHall;
+
+  read_ADC = analogRead(volume_pin);
+
+  duty_cycle = map(read_ADC, 0, 1023, 50, 255);
+  duty_cycle_lcd = map(read_ADC, 0, 1023, 0, 100);
+
+  if (duty_cycle_lcd > 0) {
+    analogWrite(pwm_pin, duty_cycle);
+  } else {
+    analogWrite(pwm_pin, 0);
+  }
 
   unsigned long now = millis();
-  if (now - lastSample >= SAMPLE_MS) {
-    noInterrupts();
-    unsigned long pulses = pulseCount;
-    pulseCount = 0;
-    interrupts();
 
-    float elapsedSec = (now - lastSample) / 1000.0;
-    float rpm = (pulses / (float)MAGNETS) / elapsedSec * 60.0;
+  if (now - lastSample >= sampleTime) {
+    rpm = (pulseCount * 60000UL) /
+          (sampleTime * pulsesPerRev);
+
+    pulseCount = 0;
     lastSample = now;
 
-    int dutyPercent = map(pwmValue, 0, 255, 0, 100);
+    lcd.setCursor(0, 0);
+    lcd.print("Duty Cycle: ");
+    lcd.print(duty_cycle_lcd);
+    lcd.print("%   ");
 
-    Serial.print(dutyPercent);
-    Serial.print("\t");
-    Serial.println(rpm, 0);
+    lcd.setCursor(0, 1);
+    lcd.print("RPM: ");
+    lcd.print(rpm);
+    lcd.print("        ");
   }
 }
